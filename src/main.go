@@ -12,10 +12,15 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
+// const
+const SCREEN_WIDTH int = 640
+const SCREEN_HEIGHT int = 480
+
 // Game implements ebiten.Game interface.
 type Game struct {
 	player  *entities.Player
 	enemies []*entities.Enemy
+	camera  *Camera
 }
 
 // Update proceeds the game state.
@@ -28,9 +33,11 @@ func (g *Game) Update() error {
 		g.followPlayer(enemy)
 	}
 
-	if ebiten.CursorMode() == 0 {
-		g.followCursor()
-	}
+	//if ebiten.CursorMode() == 0 {
+	//	g.followCursor()
+	//}
+
+	g.camera.Follow(g.player.X, g.player.Y, float64(SCREEN_WIDTH), float64(SCREEN_HEIGHT))
 
 	return nil
 }
@@ -44,15 +51,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	opts := ebiten.DrawImageOptions{}
 	opts.GeoM.Translate(g.player.X, g.player.Y)
+	opts.GeoM.Translate(g.camera.X, g.camera.Y)
 
 	//draw player
-	screen.DrawImage(g.player.Image.SubImage(image.Rect(0, 0, 16, 16)).(*ebiten.Image), &opts)
+	drawPlayer(g.player, screen, &opts)
+	//screen.DrawImage(g.player.Image.SubImage(image.Rect(0, 0, 16, 16)).(*ebiten.Image), &opts)
 
 	//draw enemies
 	for _, enemy := range g.enemies {
 		opts.GeoM.Reset()
 		opts.GeoM.Translate(enemy.X, enemy.Y)
 
+		opts.GeoM.Translate(g.camera.X, g.camera.Y)
 		screen.DrawImage(enemy.Image.SubImage(image.Rect(0, 0, 16, 16)).(*ebiten.Image), &opts)
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("enemy X = %v, enemy Y = %v", enemy.X, enemy.Y), 5, 5)
 	}
@@ -66,9 +76,9 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 
 func main() {
 	// Specify the window size as you like. Here,  a doubled size is specified.
-	ebiten.SetWindowSize(640, 480)
+	ebiten.SetWindowSize(SCREEN_WIDTH, SCREEN_HEIGHT)
 	ebiten.SetWindowTitle("Man vs Wild")
-	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	//ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	player, err := loadPlayer()
 	if err != nil {
@@ -86,6 +96,7 @@ func main() {
 		enemies: []*entities.Enemy{
 			enemy,
 		},
+		camera: NewCamera(0, 0),
 	}
 
 	// Call ebiten.RunGame to start your game loop.
@@ -117,6 +128,22 @@ func loadPlayer() (*entities.Player, error) {
 	player.Image = playerImg
 
 	return player, nil
+}
+
+// add player image based on direction
+func drawPlayer(player *entities.Player, screen *ebiten.Image, opts *ebiten.DrawImageOptions) {
+	if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+		screen.DrawImage(player.Image.SubImage(image.Rect(48, 0, 64, 16)).(*ebiten.Image), opts)
+
+	} else if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
+		screen.DrawImage(player.Image.SubImage(image.Rect(32, 0, 48, 16)).(*ebiten.Image), opts)
+	} else if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW) {
+		screen.DrawImage(player.Image.SubImage(image.Rect(16, 0, 32, 16)).(*ebiten.Image), opts)
+	} else if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+		screen.DrawImage(player.Image.SubImage(image.Rect(0, 0, 16, 16)).(*ebiten.Image), opts)
+	} else {
+		screen.DrawImage(player.Image.SubImage(image.Rect(0, 0, 16, 16)).(*ebiten.Image), opts)
+	}
 }
 
 // move player
@@ -152,8 +179,7 @@ func movePlayer(player *entities.Player) {
 
 func (g *Game) followCursor() {
 	cursorX, cursorY := ebiten.CursorPosition()
-	windowX, windowY := ebiten.WindowSize()
-	if cursorX > windowX || cursorX < 0 || cursorY > windowY || cursorY < 0 {
+	if cursorX > SCREEN_WIDTH || cursorX < 0 || cursorY > SCREEN_HEIGHT || cursorY < 0 {
 		return
 	}
 
@@ -184,8 +210,8 @@ func loadEnemy() (*entities.Enemy, error) {
 		Defense: 2,
 		Speed:   2,
 		Sprite: &entities.Sprite{
-			X:     (rand.Float64() * 320),
-			Y:     (rand.Float64() * 240),
+			X:     (rand.Float64() * float64(SCREEN_WIDTH)),
+			Y:     (rand.Float64() * float64(SCREEN_HEIGHT)),
 			Image: image,
 		},
 	}
