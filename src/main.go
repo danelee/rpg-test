@@ -18,16 +18,18 @@ const SCREEN_HEIGHT int = 480
 
 // Game implements ebiten.Game interface.
 type Game struct {
-	player  *entities.Player
-	enemies []*entities.Enemy
-	camera  *Camera
+	player       *entities.Player
+	enemies      []*entities.Enemy
+	camera       *Camera
+	tilemap      *Tilemap
+	tilemapImage *ebiten.Image
 }
 
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update() error {
 	// Write game's logic update.
-	movePlayer(g.player)
+	g.movePlayer()
 
 	for _, enemy := range g.enemies {
 		g.followPlayer(enemy)
@@ -37,7 +39,12 @@ func (g *Game) Update() error {
 	//	g.followCursor()
 	//}
 
-	g.camera.Follow(g.player.X, g.player.Y, float64(SCREEN_WIDTH), float64(SCREEN_HEIGHT))
+	g.camera.Follow(g.player.X+8, g.player.Y+8, float64(SCREEN_WIDTH), float64(SCREEN_HEIGHT))
+	g.camera.Constrain(
+		float64(g.tilemap.Layers[0].Width)*16.0,
+		float64(g.tilemap.Layers[0].Height)*16.0,
+		float64(SCREEN_WIDTH),
+		float64(SCREEN_HEIGHT))
 
 	return nil
 }
@@ -50,6 +57,35 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{192, 192, 192, 127})
 
 	opts := ebiten.DrawImageOptions{}
+
+	//TileMap rendering
+
+	for _, layer := range g.tilemap.Layers {
+		for index, id := range layer.Data {
+			x := index % layer.Width
+			y := index / layer.Height
+
+			x *= 16
+			y *= 16
+
+			srcX := (id - 1) % 22
+			srcY := (id - 1) / 22
+
+			srcX *= 16
+			srcY *= 16
+
+			opts.GeoM.Translate(float64(x), float64(y))
+
+			opts.GeoM.Translate(g.camera.X, g.camera.Y)
+
+			screen.DrawImage(
+				g.tilemapImage.SubImage(image.Rect(srcX, srcY, srcX+16, srcY+16)).(*ebiten.Image),
+				&opts,
+			)
+			opts.GeoM.Reset()
+		}
+	}
+
 	opts.GeoM.Translate(g.player.X, g.player.Y)
 	opts.GeoM.Translate(g.camera.X, g.camera.Y)
 
@@ -66,6 +102,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(enemy.Image.SubImage(image.Rect(0, 0, 16, 16)).(*ebiten.Image), &opts)
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("enemy X = %v, enemy Y = %v", enemy.X, enemy.Y), 5, 5)
 	}
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%v", SCREEN_WIDTH-g.tilemap.Layers[0].Width*16.0), 50, 50)
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
@@ -78,7 +115,7 @@ func main() {
 	// Specify the window size as you like. Here,  a doubled size is specified.
 	ebiten.SetWindowSize(SCREEN_WIDTH, SCREEN_HEIGHT)
 	ebiten.SetWindowTitle("Man vs Wild")
-	//ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	player, err := loadPlayer()
 	if err != nil {
@@ -90,13 +127,25 @@ func main() {
 		log.Fatal(err)
 	}
 
+	tilemap, err := NewTilemap("assets/maps/testmap.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tilemapImage, _, err := ebitenutil.NewImageFromFile("assets/images/TilesetFloor.png")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Game struct everything associated with the game
 	game := &Game{
 		player: player,
 		enemies: []*entities.Enemy{
 			enemy,
 		},
-		camera: NewCamera(0, 0),
+		camera:       NewCamera(0, 0),
+		tilemap:      tilemap,
+		tilemapImage: tilemapImage,
 	}
 
 	// Call ebiten.RunGame to start your game loop.
@@ -114,10 +163,10 @@ func loadPlayer() (*entities.Player, error) {
 		Health:  13,
 		Attack:  10,
 		Defense: 7,
-		Speed:   5,
+		Speed:   3,
 		Sprite: &entities.Sprite{
-			X: 10,
-			Y: 10,
+			X: float64(SCREEN_WIDTH / 2),
+			Y: float64(SCREEN_HEIGHT / 2),
 		},
 	}
 	playerImg, _, err := ebitenutil.NewImageFromFile("assets/images/Hunter/SpriteSheet.png")
@@ -147,30 +196,36 @@ func drawPlayer(player *entities.Player, screen *ebiten.Image, opts *ebiten.Draw
 }
 
 // move player
-func movePlayer(player *entities.Player) {
-	if (ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW)) && (ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA)) {
-		player.Y -= float64(player.Speed) * 0.75
-		player.X -= float64(player.Speed) * 0.75
-	} else if (ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW)) && (ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD)) {
-		player.Y -= float64(player.Speed) * 0.75
-		player.X += float64(player.Speed) * 0.75
-	} else if (ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS)) && (ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA)) {
-		player.Y += float64(player.Speed) * 0.75
-		player.X -= float64(player.Speed) * 0.75
-	} else if (ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS)) && (ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD)) {
-		player.Y += float64(player.Speed) * 0.75
-		player.X += float64(player.Speed) * 0.75
-	} else {
-		if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+func (g *Game) movePlayer() {
+	tilemapWidthPx := g.tilemap.Layers[0].Width * 16
+	tilemapHeightPx := g.tilemap.Layers[0].Height * 16
+	player := g.player
+	if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+		if player.X+float64(player.Speed) > float64(tilemapWidthPx-16) {
+			player.X = float64(tilemapWidthPx - 16)
+		} else {
 			player.X += float64(player.Speed)
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
+		if player.X-float64(player.Speed) < 0 {
+			player.X = 0
+		} else {
 			player.X -= float64(player.Speed)
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW) {
+
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW) {
+		if player.Y-float64(player.Speed) < 0 {
+			player.Y = 0
+		} else {
 			player.Y -= float64(player.Speed)
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+		if player.Y+float64(player.Speed) > float64(tilemapHeightPx-16) {
+			player.Y = float64(tilemapHeightPx - 16)
+		} else {
 			player.Y += float64(player.Speed)
 		}
 	}
