@@ -7,3 +7,11 @@ type Sprite struct {
 	X, Y  float64 //position
 	Image *ebiten.Image
 }
+
+type Projectile struct {
+	*Sprite
+	Speed   uint16
+	Damage  uint16
+	Impact  bool
+	Enabled bool
+}
